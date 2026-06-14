@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "232965060388",
+    "project_id": "fluenscene-91d56",
+    "storage_bucket": "fluenscene-91d56.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:232965060388:android:f0489b2fbc3929ed2325b1",
+        "android_client_info": {
+          "package_name": "com.app.fluenscene"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBu2muH7EtdPv_mSp9ahEZB5XvTZCxda2o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
