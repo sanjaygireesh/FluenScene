@@ -26,3 +26,12 @@
   <br><br>
   <img src="screenshots/ai-analysis.jpg" width="450" alt="FluenScene AI Insight Popup" />
 </p>
+
+# FluenScene 
+*Master English through Cinema.*
+
+FluenScene is an AI-powered Android media player that helps users build conversational English fluency by contextually analyzing local video subtitles in real-time.
+
+## Contributors
+* **Sanjay Gireesh** (Project Lead, Android Architecture, Backend, AI Integration)
+* **Prajin Sankar A U** (UI/UX Design, Logo Design)
