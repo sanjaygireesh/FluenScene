@@ -140,6 +140,8 @@ val Cormorant = FontFamily(Font(R.font.cormorant))
 val Cinzel = FontFamily(Font(R.font.cinzelb))
 val Jakarta = FontFamily(Font(R.font.jakartan))
 val Comfortaa = FontFamily(Font(R.font.comfortaa))
+val Agrandir = FontFamily(Font(R.font.agrandirwl))
+
 
 val FluenSceneGradient = Brush.linearGradient(
     colors = listOf(Color(0xFF42F1B8), Color(0xFF2ADF8E), Color(0xFF00C93A)),
@@ -506,7 +508,7 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
         ) {
 
             // Large Centered Title
-            Text("FluenScene", style = TextStyle(brush = FluenSceneGradient), fontSize = 56.sp, fontWeight = FontWeight.Black, fontFamily = Cormorant, letterSpacing = 2.sp)
+            Text("FluenScene", style = TextStyle(brush = FluenSceneGradient), fontSize = 50.sp, fontWeight = FontWeight.Black, fontFamily = Agrandir, letterSpacing = 2.sp)
 
             Spacer(modifier = Modifier.height(16.dp))
 
