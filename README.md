@@ -28,7 +28,7 @@
 </p>
 
 # FluenScene 
-*Master English through Cinema.*
+*Master English through Cinema!*
 
 FluenScene is an AI-powered Android media player that helps users build conversational English fluency by contextually analyzing local video subtitles in real-time.
 
