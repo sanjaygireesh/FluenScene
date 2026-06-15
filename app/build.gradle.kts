@@ -15,7 +15,7 @@ plugins {
 
 android {
     namespace = "com.app.fluenscene"
-    compileSdk = 36 // Updated per your UI doc structure
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.app.fluenscene"
