@@ -105,7 +105,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.android.billingclient.api.*
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
@@ -132,6 +131,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+import androidx.activity.enableEdgeToEdge
 
 // --------------------------------------------------------------------
 // UI COMPONENTS (FONTS, BRANDING & GLASS ENGINE)
@@ -141,7 +141,6 @@ val Cinzel = FontFamily(Font(R.font.cinzelb))
 val Jakarta = FontFamily(Font(R.font.jakartan))
 val Comfortaa = FontFamily(Font(R.font.comfortaa))
 val Agrandir = FontFamily(Font(R.font.agrandirwl))
-
 
 val FluenSceneGradient = Brush.linearGradient(
     colors = listOf(Color(0xFF42F1B8), Color(0xFF2ADF8E), Color(0xFF00C93A)),
@@ -180,6 +179,7 @@ fun getUserIdFingerprint(): String {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
@@ -233,6 +233,78 @@ val dynamicVoicePrompts = listOf(
     "What is your favorite movie or book, and why does it resonate with you?",
     "How do you think artificial intelligence will change daily life in the next ten years?"
 )
+
+// Helper function to handle seamless API Key redirect
+fun launchGroqConsole(context: Context) {
+    val url = "https://console.groq.com/keys"
+    try {
+        val customTabsIntent = androidx.browser.customtabs.CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .build()
+        customTabsIntent.launchUrl(context, Uri.parse(url))
+    } catch (e: Exception) {
+        // Fallback if Custom Tabs is unavailable
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        context.startActivity(intent)
+    }
+}
+
+@Composable
+fun ApiKeySetupCard(apiKey: String, onKeyChange: (String) -> Unit, context: Context = LocalContext.current) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0B1410), RoundedCornerShape(16.dp))
+            .border(1.dp, Color(0xFF162A20), RoundedCornerShape(16.dp))
+            .padding(20.dp)
+    ) {
+        Text(
+            text = "Connect Your AI Engine",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            fontFamily = Jakarta
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "FluenScene is 100% free and open. To power the AI translations, simply link your own Groq account. It takes 30 seconds:\n\n1. Tap the button below to open Groq Console.\n2. Log in with your Google account.\n3. Click 'Create API Key'.\n4. Copy the key and paste it below.",
+            color = Color.Gray,
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            fontFamily = Jakarta
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Step 1: The Optimized Redirect Button
+        Button(
+            onClick = { launchGroqConsole(context) },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2924)),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Filled.Launch, contentDescription = null, tint = FluenSceneGreenSolid, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("1. Generate Key on Groq", color = Color.White, fontFamily = Jakarta)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Step 2: Clear Entry Field
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = onKeyChange,
+            label = { Text("2. Paste your gsk_... key here", color = Color.Gray) },
+            textStyle = TextStyle(color = Color.White, fontFamily = Jakarta),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = FluenSceneGreenSolid,
+                unfocusedBorderColor = Color(0xFF1E2924)
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+    }
+}
 
 @Composable
 fun AmbientGreenGlow() {
@@ -320,7 +392,7 @@ fun FluenSceneApp(intentUri: Uri? = null) {
                     val docRef = db.collection("users").document(userId)
                     val snapshot = docRef.get().await()
 
-                    if (snapshot.exists() && snapshot.contains("apiCallsUsed")) {
+                    if (snapshot.exists() && snapshot.contains("accountStatus")) {
                         docRef.update(
                             mapOf(
                                 "email" to auth.currentUser?.email,
@@ -332,8 +404,6 @@ fun FluenSceneApp(intentUri: Uri? = null) {
                         val userData = mapOf(
                             "email" to auth.currentUser?.email,
                             "fluencyLevel" to calculatedFluency,
-                            "apiCallsUsed" to 0,
-                            "isPremium" to false,
                             "totalTranslationsRequested" to 0,
                             "accountStatus" to "active"
                         )
@@ -432,28 +502,24 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
         label = "GlowPulse"
     )
 
-    // Pre-calculate stars to maintain their offsets
     val stars = remember {
         List(50) {
             floatArrayOf(
-                Random.nextFloat(), // x ratio
-                Random.nextFloat(), // start y ratio
-                Random.nextFloat() * 3f + 1f, // radius
-                Random.nextFloat() * 0.5f + 0.2f, // base alpha
-                Random.nextFloat() * 0.5f + 0.1f, // speed Y
-                Random.nextFloat() * (2 * Math.PI).toFloat() // phase for pulse
+                Random.nextFloat(),
+                Random.nextFloat(),
+                Random.nextFloat() * 3f + 1f,
+                Random.nextFloat() * 0.5f + 0.2f,
+                Random.nextFloat() * 0.5f + 0.1f,
+                Random.nextFloat() * (2 * Math.PI).toFloat()
             )
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF060D0A))) {
-
-        // Background Curves and Stars
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
 
-            // Top Right Waves
             val topPath1 = Path().apply {
                 moveTo(w * 0.4f, 0f)
                 quadraticBezierTo(w * 0.8f, h * 0.15f, w, h * 0.25f)
@@ -465,14 +531,12 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
             drawPath(topPath1, Brush.linearGradient(listOf(Color.Transparent, FluenSceneGreenSolid.copy(alpha = lineAlpha))), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
             drawPath(topPath2, Brush.linearGradient(listOf(Color.Transparent, FluenSceneGreenSolid.copy(alpha = lineAlpha * 0.6f))), style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round))
 
-            // Bottom Left Waves
             val bottomPath1 = Path().apply {
                 moveTo(0f, h * 0.8f)
                 quadraticBezierTo(w * 0.2f, h * 0.9f, w * 0.4f, h)
             }
             drawPath(bottomPath1, Brush.linearGradient(listOf(FluenSceneGreenSolid.copy(alpha = lineAlpha), Color.Transparent)), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
 
-            // Moving Stars
             stars.forEach { star ->
                 val startX = star[0] * w
                 val startY = star[1] * h
@@ -481,11 +545,9 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
                 val speedY = star[4]
                 val phase = star[5]
 
-                // Slowly move upwards
                 val currentY = (startY - (time * speedY * 15f)) % h
                 val actualY = if (currentY < 0) currentY + h else currentY
 
-                // Breathing alpha effect using explicit kotlin.math.sin to fix Float/Double mismatch
                 val alphaPulse = (sin(time * 0.05f + phase) * 0.4f + 0.6f)
                 val finalAlpha = (baseAlpha * alphaPulse).coerceIn(0.1f, 1f)
 
@@ -493,7 +555,6 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
             }
         }
 
-        // Glowing center background
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -506,18 +567,14 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
             modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.Center
         ) {
-
-            // Large Centered Title
             Text("FluenScene", style = TextStyle(brush = FluenSceneGradient), fontSize = 50.sp, fontWeight = FontWeight.Black, fontFamily = Agrandir, letterSpacing = 2.sp)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Subtitle
             Text("Master English through Cinema", color = Color.Gray, fontFamily = Jakarta, fontSize = 18.sp)
 
             Spacer(modifier = Modifier.height(64.dp))
 
-            // Features Row (Wrapped in IntrinsicSize.Max to force equal heights)
             Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FeatureCard(modifier = Modifier.weight(1f).fillMaxHeight(), icon = Icons.Filled.Movie, title = "Learn Naturally", desc = "Real conversations from real movies")
                 FeatureCard(modifier = Modifier.weight(1f).fillMaxHeight(), icon = Icons.Filled.ChatBubble, title = "Build Fluency", desc = "Improve listening, speaking & more")
@@ -526,7 +583,6 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
 
             Spacer(modifier = Modifier.height(56.dp))
 
-            // Google Sign In Button
             Button(
                 onClick = {
                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -551,7 +607,6 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Footer Privacy text linked to github
             val privacyUrl = "https://sanjaygireesh.github.io/fluenscene-privacy/"
             Row(
                 verticalAlignment = Alignment.Top,
@@ -605,13 +660,21 @@ fun SetupRegionScreen(onRegionSaved: () -> Unit) {
     val userId = remember { getUserIdFingerprint() }
     var regionText by remember(userId) { mutableStateOf("") }
     var expanded by remember(userId) { mutableStateOf(false) }
+    var apiKeyInput by remember(userId) { mutableStateOf(UserPreferences.getApiKey(context, userId)) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0A0A))) {
         AmbientGreenGlow()
         Column(
-            modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 24.dp).systemBarsPadding(),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .systemBarsPadding()
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.height(32.dp))
+
             Text(
                 text = "Welcome to FluenScene",
                 style = TextStyle(brush = FluenSceneGradient),
@@ -657,7 +720,19 @@ fun SetupRegionScreen(onRegionSaved: () -> Unit) {
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(32.dp))
+
+            ApiKeySetupCard(
+                apiKey = apiKeyInput,
+                onKeyChange = {
+                    apiKeyInput = it
+                    UserPreferences.saveApiKey(context, userId, it)
+                },
+                context = context
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
 
             Button(
                 onClick = {
@@ -665,13 +740,15 @@ fun SetupRegionScreen(onRegionSaved: () -> Unit) {
                     UserPreferences.saveRegion(context, userId, finalRegion)
                     onRegionSaved()
                 },
-                enabled = regionText.isNotBlank(),
-                modifier = Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(12.dp)).background(if (regionText.isNotBlank()) FluenSceneGradient else Brush.linearGradient(listOf(Color(0xFF121212), Color(0xFF121212)))),
+                enabled = regionText.isNotBlank() && apiKeyInput.startsWith("gsk_"),
+                modifier = Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(12.dp)).background(if (regionText.isNotBlank() && apiKeyInput.startsWith("gsk_")) FluenSceneGradient else Brush.linearGradient(listOf(Color(0xFF121212), Color(0xFF121212)))),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
                 contentPadding = PaddingValues()
             ) {
-                Text("Continue to Placement Test", color = if(regionText.isNotBlank()) Color.Black else Color.DarkGray, fontWeight = FontWeight.Bold, fontFamily = Jakarta, letterSpacing = 2.sp)
+                Text("Continue to Placement Test", color = if(regionText.isNotBlank() && apiKeyInput.startsWith("gsk_")) Color.Black else Color.DarkGray, fontWeight = FontWeight.Bold, fontFamily = Jakarta, letterSpacing = 2.sp)
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
@@ -690,6 +767,7 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
 
     var showResultDialog by remember { mutableStateOf(false) }
     var finalCalculatedScore by remember { mutableIntStateOf(5) }
+    var showAudioDisclosure by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     val selectedVoicePrompt by remember { mutableStateOf(dynamicVoicePrompts.random()) }
@@ -711,7 +789,7 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     val prompt = "The user was asked: \"$selectedVoicePrompt\". They verbally responded: \"$spokenText\". Grade their English conversational fluency (focusing on natural flow, vocabulary usage in context, and enunciation. Ignore theoretical grammar flaws if it sounds like native slang or conversational flow) strictly from 1 to 10. Respond ONLY with a single digit or number."
-                    val evaluationResponse = generateTextFromGroq(prompt)
+                    val evaluationResponse = generateTextFromGroq(prompt, context)
 
                     val match = Regex("\\b([1-9]|10)\\b").find(evaluationResponse)
                     val voiceScore = match?.value?.toInt() ?: mcqScore
@@ -841,7 +919,7 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
                                     }
                                     speechLauncher.launch(intent)
                                 } else {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    showAudioDisclosure = true // Trigger Dialog First
                                 }
                             },
                             modifier = Modifier.size(100.dp).background(FluenSceneGradient, CircleShape),
@@ -849,6 +927,33 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
                             contentPadding = PaddingValues()
                         ) {
                             Icon(Icons.Filled.Mic, contentDescription = "Speak", modifier = Modifier.size(48.dp), tint = Color.Black)
+                        }
+
+                        // The Prominent Disclosure Dialog for Audio
+                        if (showAudioDisclosure) {
+                            AlertDialog(
+                                onDismissRequest = { showAudioDisclosure = false },
+                                title = { Text("Microphone Access Required", style = TextStyle(brush = FluenSceneGradient), fontWeight = FontWeight.Bold, fontFamily = Comfortaa) },
+                                text = {
+                                    Text("FluenScene requires access to your microphone to listen to your voice and analyze your conversational English fluency during the AI Placement Test. This audio is processed securely to calculate your score and is not permanently stored or shared.", color = Color.White, fontFamily = Jakarta)
+                                },
+                                containerColor = Color(0xFF1E2924),
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            showAudioDisclosure = false
+                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                        modifier = Modifier.background(FluenSceneGradient, RoundedCornerShape(8.dp))
+                                    ) { Text("I Agree", color = Color.Black, fontFamily = Jakarta, fontWeight = FontWeight.Bold) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showAudioDisclosure = false }) {
+                                        Text("Deny", color = Color.Gray, fontFamily = Jakarta)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -893,7 +998,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     val initialRegion = remember(userId) { UserPreferences.getUserRegion(context, userId) }
 
     var cloudFluency by remember(userId) { mutableIntStateOf(5) }
-    var isPremium by remember(userId) { mutableStateOf(false) }
+    var apiKeyInput by remember(userId) { mutableStateOf(UserPreferences.getApiKey(context, userId)) }
 
     var showDeleteDialog by remember(userId) { mutableStateOf(false) }
     var showUnsavedWarning by remember(userId) { mutableStateOf(false) }
@@ -912,7 +1017,6 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
             try {
                 val doc = db.collection("users").document(userId).get().await()
                 cloudFluency = doc.getLong("fluencyLevel")?.toInt() ?: 5
-                isPremium = doc.getBoolean("isPremium") ?: false
             } catch (e: Exception) {}
         }
     }
@@ -958,9 +1062,16 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 val emailText = auth.currentUser?.email ?: "Unknown"
                 Text("Email: $emailText", color = Color.White, fontSize = 16.sp, fontFamily = Jakarta)
 
-                val premiumText = if (isPremium) "Active" else "Free Tier"
-                val premiumColor = if (isPremium) FluenSceneGreenSolid else Color.White
-                Text("Premium: $premiumText", color = premiumColor, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp), fontFamily = Jakarta)
+                Spacer(modifier = Modifier.height(40.dp))
+
+                ApiKeySetupCard(
+                    apiKey = apiKeyInput,
+                    onKeyChange = {
+                        apiKeyInput = it
+                        UserPreferences.saveApiKey(context, userId, it)
+                    },
+                    context = context
+                )
 
                 Spacer(modifier = Modifier.height(40.dp))
 
@@ -1174,6 +1285,7 @@ fun LocalVideoLibrary(
 ) {
     val context = LocalContext.current
     var videoList by remember { mutableStateOf<List<LocalVideo>>(emptyList()) }
+    var showStorageDisclosure by remember { mutableStateOf(false) }
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1191,9 +1303,6 @@ fun LocalVideoLibrary(
     LaunchedEffect(hasPermission) {
         if (hasPermission) {
             videoList = loadVideosFromStorage(context)
-        } else {
-            val targetPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-            permissionLauncher.launch(targetPermission)
         }
     }
 
@@ -1283,10 +1392,37 @@ fun LocalVideoLibrary(
             if (!hasPermission) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Button(onClick = {
-                        val targetPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-                        permissionLauncher.launch(targetPermission)
+                        showStorageDisclosure = true
                     }) { Text("Grant Storage Permission") }
                 }
+
+                if (showStorageDisclosure) {
+                    AlertDialog(
+                        onDismissRequest = { showStorageDisclosure = false },
+                        title = { Text("Storage Access Required", style = TextStyle(brush = FluenSceneGradient), fontWeight = FontWeight.Bold, fontFamily = Comfortaa) },
+                        text = {
+                            Text("FluenScene requires access to your device's video files and external storage so you can select and play your locally downloaded movies to learn from them. We only access the media files you explicitly choose to play.", color = Color.White, fontFamily = Jakarta)
+                        },
+                        containerColor = Color(0xFF1E2924),
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showStorageDisclosure = false
+                                    val targetPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
+                                    permissionLauncher.launch(targetPermission)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                modifier = Modifier.background(FluenSceneGradient, RoundedCornerShape(8.dp))
+                            ) { Text("I Agree", color = Color.Black, fontFamily = Jakarta, fontWeight = FontWeight.Bold) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showStorageDisclosure = false }) {
+                                Text("Deny", color = Color.Gray, fontFamily = Jakarta)
+                            }
+                        }
+                    )
+                }
+
             } else if (videoList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No playable videos found.", color = Color.Gray, fontFamily = Jakarta)
@@ -1363,8 +1499,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
     val userRegion = remember(userId) { UserPreferences.getUserRegion(context, userId) }
     val coroutineScope = rememberCoroutineScope()
     val activity = context as? ComponentActivity
-
-    var showPaymentDialog by remember { mutableStateOf(false) }
 
     val vibrator = remember { context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator }
     val performHardVibration = {
@@ -1693,7 +1827,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                         currentBrightness = (currentBrightness - (dragAmount.y * sensitivity)).coerceIn(0.01f, 1.0f)
                                         lp.screenBrightness = currentBrightness
                                         window.attributes = lp
-                                        window.attributes = lp
                                         gestureIndicatorText = "Brightness: ${(currentBrightness * 100).toInt()}%"
                                     }
                                 } else {
@@ -1710,11 +1843,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 }
         )
 
-        // ------------------------------------------------------------------------------------------------
-        // CUSTOM COMPOSE PLAYBACK UI
-        // ------------------------------------------------------------------------------------------------
-
-        // --- 1. Top Control Bar Pill ---
         AnimatedVisibility(
             visible = areControlsVisible && !isInPipMode,
             enter = fadeIn(),
@@ -1917,7 +2045,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
             }
         }
 
-        // --- 2. Center Media Controls ---
         AnimatedVisibility(
             visible = areControlsVisible && !isInPipMode,
             enter = fadeIn(),
@@ -1935,13 +2062,11 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Skip Previous
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekToPreviousMediaItem() }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Icon(Icons.Filled.SkipPrevious, contentDescription = null, tint = Color.White, modifier = Modifier.size(skipIconSize))
                     }
                 }
-                // Jump Back 5
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekTo((currentPosition - 5000).coerceAtLeast(0)) }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -1953,9 +2078,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     }
                 }
 
-                // Play / Pause Master (With Green Glow Effect)
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(playBtnOuterSize)) {
-                    // Glow layer
                     Box(modifier = Modifier
                         .size(playBtnInnerSize + 16.dp)
                         .background(
@@ -1965,7 +2088,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                             shape = CircleShape
                         )
                     )
-                    // Actual button
                     Box(modifier = Modifier
                         .size(playBtnInnerSize)
                         .background(FluenSceneGreenSolid, CircleShape)
@@ -1981,7 +2103,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     }
                 }
 
-                // Jump Forward 15
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekTo((currentPosition + 15000).coerceAtMost(videoDuration)) }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -1992,7 +2113,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                         }
                     }
                 }
-                // Skip Next
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekToNextMediaItem() }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White, modifier = Modifier.size(skipIconSize))
@@ -2001,7 +2121,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
             }
         }
 
-        // --- 3. Bottom Scrubber Pill (Integrated CC: LANG to prevent collisions) ---
         AnimatedVisibility(
             visible = areControlsVisible && !isInPipMode,
             enter = fadeIn(),
@@ -2063,7 +2182,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
-                        // Embedded CC: LANG Selection properly aligned with settings to prevent collision
                         Box {
                             Text(
                                 text = "CC: LANG",
@@ -2115,7 +2233,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                             }
                         }
 
-                        // Settings Gear
                         Box {
                             Icon(
                                 Icons.Filled.Settings,
@@ -2129,7 +2246,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                     }
                             )
 
-                            // Settings Main Menu
                             DropdownMenu(
                                 expanded = showSettingsMenu,
                                 onDismissRequest = { showSettingsMenu = false }
@@ -2166,7 +2282,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                 )
                             }
 
-                            // Audio Tracks Sub-Menu
                             DropdownMenu(
                                 expanded = showAudioTracksMenu,
                                 onDismissRequest = { showAudioTracksMenu = false }
@@ -2193,7 +2308,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                 }
                             }
 
-                            // Playback Speed Sub-Menu
                             DropdownMenu(
                                 expanded = showSpeedMenu,
                                 onDismissRequest = { showSpeedMenu = false }
@@ -2223,10 +2337,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
             }
         }
 
-        // ------------------------------------------------------------------------------------------------
-        // GESTURE PREVIEWS & DYNAMIC SPEED
-        // ------------------------------------------------------------------------------------------------
-
         AnimatedVisibility(
             visible = isDynamicSpeedActive && !isInPipMode,
             enter = fadeIn(),
@@ -2234,7 +2344,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
             modifier = Modifier.align(Alignment.Center)
         ) {
             if (isPortrait) {
-                // Curved Speedometer Layout for Portrait
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2247,7 +2356,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                         val isActive = index == currentDynamicSpeedIndex
                         val count = dynamicSpeedLevels.size
 
-                        // Sweeping arc from 180 degrees to 0 degrees to expand the spread entirely
                         val startAngle = 180.0 * PI / 180.0
                         val endAngle = 0.0 * PI / 180.0
                         val angle = startAngle - (index.toDouble() / (count - 1)) * (startAngle - endAngle)
@@ -2289,7 +2397,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     )
                 }
             } else {
-                // Horizontal Pill Layout for Landscape
                 Box(modifier = Modifier
                     .align(Alignment.TopCenter)
                     .displayCutoutPadding()
@@ -2342,10 +2449,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
             }
         }
 
-        // ------------------------------------------------------------------------------------------------
-        // FLUENSCENE AI SUBTITLES & INSIGHT POPUP
-        // ------------------------------------------------------------------------------------------------
-
         val subtitleBottomPadding by animateDpAsState(
             targetValue = if (areControlsVisible && !isInPipMode) 90.dp else 40.dp
         )
@@ -2379,33 +2482,33 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
 
                             coroutineScope.launch {
                                 try {
+                                    val customKey = UserPreferences.getApiKey(context, userId)
+                                    if (customKey.isBlank() || !customKey.startsWith("gsk_")) {
+                                        aiExplanationText = "API Key missing or invalid! Please add your Groq API Key in Settings to translate."
+                                        isThinking = false
+                                        return@launch
+                                    }
+
                                     val userRef = db.collection("users").document(userId)
                                     val snapshot = userRef.get().await()
 
-                                    val apiCallsUsed = snapshot.getLong("apiCallsUsed") ?: 0
-                                    val isPremium = snapshot.getBoolean("isPremium") ?: false
                                     val currentFluency = snapshot.getLong("fluencyLevel") ?: 5
                                     val totalTranslations = snapshot.getLong("totalTranslationsRequested") ?: 0
 
-                                    if (apiCallsUsed >= 30 && !isPremium) {
-                                        isThinking = false
-                                        showPaymentDialog = true
-                                    } else {
-                                        aiExplanationText = getAiExplanation(currentSubtitleText, BuildConfig.GROQ_API_KEY, userRegion, currentFluency.toInt())
+                                    aiExplanationText = getAiExplanation(currentSubtitleText, customKey, userRegion, currentFluency.toInt())
 
-                                        var newFluency = currentFluency
-                                        val newTotal = totalTranslations + 1
-                                        if (newTotal % 50 == 0L && newFluency < 10) {
-                                            newFluency += 1
-                                        }
-
-                                        userRef.update(
-                                            "apiCallsUsed", apiCallsUsed + 1,
-                                            "totalTranslationsRequested", newTotal,
-                                            "fluencyLevel", newFluency
-                                        )
-                                        isThinking = false
+                                    var newFluency = currentFluency
+                                    val newTotal = totalTranslations + 1
+                                    if (newTotal % 50 == 0L && newFluency < 10) {
+                                        newFluency += 1
                                     }
+
+                                    userRef.update(
+                                        "totalTranslationsRequested", newTotal,
+                                        "fluencyLevel", newFluency
+                                    )
+                                    isThinking = false
+
                                 } catch (e: Exception) {
                                     aiExplanationText = "Network Error communicating with Firebase. Check your connection."
                                     isThinking = false
@@ -2454,9 +2557,29 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
-                            Toast.makeText(context, "Report submitted. Thank you.", Toast.LENGTH_SHORT).show()
-                            aiExplanationText = null
-                            exoPlayer.play()
+                            // FIX 1: Actually save the report to Firebase to comply with Google Play AI policies
+                            coroutineScope.launch {
+                                try {
+                                    val reportData = mapOf(
+                                        "userId" to userId,
+                                        "reportedAiText" to cleanAiText,
+                                        "subtitleContext" to currentSubtitleText,
+                                        "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                                    )
+                                    // Add to a new collection called "ai_reports"
+                                    db.collection("ai_reports").add(reportData).await()
+
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Report submitted to developers. Thank you.", Toast.LENGTH_LONG).show()
+                                        aiExplanationText = null
+                                        exoPlayer.play()
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Network error. Could not send report.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
                         }) {
                             Icon(Icons.Filled.Flag, contentDescription = "Report AI Response", tint = Color.Gray, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -2470,147 +2593,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 }
             }
         }
-
-        if (showPaymentDialog) {
-            PlayBillingDialog(onDismiss = { showPaymentDialog = false; exoPlayer.play() }, uid = userId)
-        }
     }
-}
-
-@Composable
-fun PlayBillingDialog(onDismiss: () -> Unit, uid: String) {
-    val context = LocalContext.current
-    val activity = context as? Activity
-    val coroutineScope = rememberCoroutineScope()
-    var productDetails by remember { mutableStateOf<ProductDetails?>(null) }
-    var billingMessage by remember { mutableStateOf("Connecting to Google Play...") }
-    var isProcessing by remember { mutableStateOf(false) }
-
-    val billingClient = remember {
-        BillingClient.newBuilder(context)
-            .setListener { billingResult, purchases ->
-                if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
-                    for (purchase in purchases) {
-                        if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
-                            billingMessage = "Payment Successful! Upgrading account..."
-                            isProcessing = true
-                            coroutineScope.launch(Dispatchers.IO) {
-                                try {
-                                    if (!purchase.isAcknowledged) {
-                                        val acknowledgeParams = AcknowledgePurchaseParams.newBuilder()
-                                            .setPurchaseToken(purchase.purchaseToken)
-                                            .build()
-                                        BillingClient.newBuilder(context).enablePendingPurchases().build().acknowledgePurchase(acknowledgeParams)
-                                    }
-                                    db.collection("users").document(uid).update("isPremium", true).await()
-                                    withContext(Dispatchers.Main) {
-                                        billingMessage = "Welcome to Premium!"
-                                        delay(1500)
-                                        onDismiss()
-                                    }
-                                } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) {
-                                        billingMessage = "Upgrade failed to sync. Contact Support."
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if (billingResult.responseCode == BillingClient.BillingResponseCode.USER_CANCELED) {
-                    billingMessage = "Payment cancelled."
-                    isProcessing = false
-                } else {
-                    billingMessage = "Error: ${billingResult.debugMessage}"
-                    isProcessing = false
-                }
-            }
-            .enablePendingPurchases()
-            .build()
-    }
-
-    DisposableEffect(Unit) {
-        billingClient.startConnection(object : BillingClientStateListener {
-            override fun onBillingSetupFinished(billingResult: BillingResult) {
-                if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                    billingMessage = "Fetching subscription details..."
-                    val queryProductDetailsParams = QueryProductDetailsParams.newBuilder()
-                        .setProductList(
-                            listOf(
-                                QueryProductDetailsParams.Product.newBuilder()
-                                    .setProductId("fluenscene_premium_monthly")
-                                    .setProductType(BillingClient.ProductType.SUBS)
-                                    .build()
-                            )
-                        )
-                        .build()
-
-                    billingClient.queryProductDetailsAsync(queryProductDetailsParams) { result, productDetailsList ->
-                        if (result.responseCode == BillingClient.BillingResponseCode.OK && productDetailsList.isNotEmpty()) {
-                            productDetails = productDetailsList.first()
-                            billingMessage = ""
-                        } else {
-                            billingMessage = "Subscription not found. Ensure app is uploaded to Internal Testing."
-                        }
-                    }
-                }
-            }
-            override fun onBillingServiceDisconnected() {
-                billingMessage = "Disconnected from Google Play."
-            }
-        })
-
-        onDispose {
-            billingClient.endConnection()
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = { if (!isProcessing) onDismiss() },
-        title = { Text("Unlock FluenScene Premium", style = TextStyle(brush = FluenSceneGradient), fontWeight = FontWeight.Bold, fontFamily = Comfortaa) },
-        text = {
-            Column {
-                Text("You've used your 30 free AI explanations! Upgrade to premium for unlimited AI context, dynamic fluency tracking, and advanced translations.", color = Color.White, fontFamily = Jakarta)
-                Spacer(modifier = Modifier.height(16.dp))
-                if (billingMessage.isNotEmpty()) {
-                    Text(text = billingMessage, color = if (billingMessage.contains("Success") || billingMessage.isEmpty()) FluenSceneGreenSolid else Color.Yellow, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
-                }
-            }
-        },
-        containerColor = Color(0xFF1E2924),
-        confirmButton = {
-            Button(
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                contentPadding = PaddingValues(),
-                enabled = productDetails != null && !isProcessing,
-                modifier = Modifier.background(if (productDetails != null && !isProcessing) FluenSceneGradient else Brush.linearGradient(listOf(Color.DarkGray, Color.DarkGray)), RoundedCornerShape(8.dp)),
-                onClick = {
-                    productDetails?.let { product ->
-                        val offerToken = product.subscriptionOfferDetails?.firstOrNull()?.offerToken
-                        if (offerToken != null && activity != null) {
-                            val productDetailsParamsList = listOf(
-                                BillingFlowParams.ProductDetailsParams.newBuilder()
-                                    .setProductDetails(product)
-                                    .setOfferToken(offerToken)
-                                    .build()
-                            )
-                            val billingFlowParams = BillingFlowParams.newBuilder()
-                                .setProductDetailsParamsList(productDetailsParamsList)
-                                .build()
-                            billingClient.launchBillingFlow(activity, billingFlowParams)
-                        }
-                    }
-                }
-            ) {
-                Box(modifier = Modifier.padding(16.dp, 8.dp)) {
-                    val price = productDetails?.subscriptionOfferDetails?.firstOrNull()?.pricingPhases?.pricingPhaseList?.firstOrNull()?.formattedPrice ?: "Loading..."
-                    Text(if (isProcessing) "Processing..." else "Subscribe for $price / month", color = Color.Black, fontFamily = Jakarta)
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isProcessing) { Text("Cancel", color = Color.Gray, fontFamily = Jakarta) }
-        }
-    )
 }
 
 fun formatTime(ms: Long): String {
@@ -2700,51 +2683,57 @@ fun VideoThumbnail(uri: Uri, videoId: Long, modifier: Modifier) {
 
 suspend fun getAiExplanation(subtitle: String, apiKey: String, userRegion: String, fluency: Int): String {
     return withContext(Dispatchers.IO) {
-        try {
-            val client = OkHttpClient.Builder()
-                .connectTimeout(90, TimeUnit.SECONDS)
-                .readTimeout(90, TimeUnit.SECONDS)
-                .writeTimeout(90, TimeUnit.SECONDS)
-                .build()
+        val client = OkHttpClient.Builder()
+            .connectTimeout(90, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(90, TimeUnit.SECONDS)
+            .build()
 
-            val url = "https://api.groq.com/openai/v1/chat/completions"
-            val jsonPayloadObject = JSONObject().apply {
-                put("model", "llama-3.1-8b-instant")
-                put("temperature", 0.3)
+        val url = "https://api.groq.com/openai/v1/chat/completions"
+        val jsonPayloadObject = JSONObject().apply {
+            put("model", "llama-3.1-8b-instant")
+            put("temperature", 0.3)
 
-                val levelInstruction = when (fluency) {
-                    in 1..3 -> "CRITICAL: The user has low fluency. Use extremely basic vocabulary (A1-A2 level), very short sentences, and explain idioms literally. DO NOT overcomplicate."
-                    in 4..7 -> "The user has intermediate fluency (B1-B2 level). Provide a clear, natural explanation without being overly simplistic."
-                    else -> "The user has high fluency (C1-C2 level). Use advanced vocabulary, nuanced context, and explain the deep cultural or idiomatic structure."
-                }
-
-                val messagesArray = JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", "You are an elite English language tutor built into a video player. The user is from $userRegion. Their fluency is $fluency out of 10. $levelInstruction \n\nCRITICAL OUTPUT FORMAT:\n1. English Explanation: Clean, direct context (under 3 short paragraphs).\n2. Native Translation: You MUST conclude with exactly two lines explaining the core meaning in the native regional language of $userRegion using its native script. Label it \"💡 Regional Context:\". Do NOT skip the native script translation.")
-                    })
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", "Explain this subtitle in context: \"$subtitle\"")
-                    })
-                }
-                put("messages", messagesArray)
+            val levelInstruction = when (fluency) {
+                in 1..3 -> "CRITICAL: The user has low fluency. Use extremely basic vocabulary (A1-A2 level), very short sentences, and explain idioms literally. DO NOT overcomplicate."
+                in 4..7 -> "The user has intermediate fluency (B1-B2 level). Provide a clear, natural explanation without being overly simplistic."
+                else -> "The user has high fluency (C1-C2 level). Use advanced vocabulary, nuanced context, and explain the deep cultural or idiomatic structure."
             }
-            val body = jsonPayloadObject.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+            val messagesArray = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", "You are an elite English language tutor built into a video player. The user is from $userRegion. Their fluency is $fluency out of 10. $levelInstruction \n\nCRITICAL OUTPUT FORMAT:\n1. English Explanation: Clean, direct context (under 3 short paragraphs).\n2. Native Translation: You MUST conclude with exactly two lines explaining the core meaning in the native regional language of $userRegion using its native script. Label it \"💡 Regional Context:\". Do NOT skip the native script translation.")
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", "Explain this subtitle in context: \"$subtitle\"")
+                })
+            }
+            put("messages", messagesArray)
+        }
+        val body = jsonPayloadObject.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+        try {
             val request = Request.Builder().url(url).addHeader("Authorization", "Bearer $apiKey").post(body).build()
             val response = client.newCall(request).execute()
             val responseData = response.body?.string()
 
             if (response.isSuccessful && responseData != null) {
                 JSONObject(responseData).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-            } else "Error communicating with context parser code: ${response.code}"
+            } else {
+                "Error communicating with context parser code: ${response.code}. Please ensure your custom API Key is valid."
+            }
         } catch (e: Exception) {
             "Network error parsing context. Try again."
         }
     }
 }
 
-suspend fun generateTextFromGroq(prompt: String): String {
+suspend fun generateTextFromGroq(prompt: String, context: Context): String {
+    val customKey = UserPreferences.getApiKey(context, getUserIdFingerprint())
+    if (customKey.isBlank() || !customKey.startsWith("gsk_")) return "[]"
+
     return withContext(Dispatchers.IO) {
         val client = OkHttpClient.Builder()
             .connectTimeout(90, TimeUnit.SECONDS)
@@ -2766,19 +2755,32 @@ suspend fun generateTextFromGroq(prompt: String): String {
         }
         val body = jsonPayloadObject.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
 
-        val request = Request.Builder().url(url).addHeader("Authorization", "Bearer ${BuildConfig.GROQ_API_KEY}").post(body).build()
+        try {
+            val request = Request.Builder().url(url).addHeader("Authorization", "Bearer $customKey").post(body).build()
+            val response = client.newCall(request).execute()
+            val responseData = response.body?.string()
 
-        val response = client.newCall(request).execute()
-        val responseData = response.body?.string()
-
-        if (response.isSuccessful && responseData != null) {
-            JSONObject(responseData).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-        } else "[]"
+            if (response.isSuccessful && responseData != null) {
+                JSONObject(responseData).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+            } else {
+                "[]"
+            }
+        } catch (e: Exception) {
+            "[]"
+        }
     }
 }
 
 object UserPreferences {
     private const val PREFS_NAME = "FluenScenePrefs"
+
+    fun saveApiKey(context: Context, userId: String, apiKey: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString("api_key_$userId", apiKey).apply()
+    }
+
+    fun getApiKey(context: Context, userId: String): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString("api_key_$userId", "") ?: ""
+    }
 
     fun hasSeenSubTutorial(context: Context, userId: String): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("sub_tutorial_seen_$userId", false)
@@ -2793,6 +2795,7 @@ object UserPreferences {
         prefs.edit()
             .remove("user_region_$userId")
             .remove("sub_tutorial_seen_$userId")
+            .remove("api_key_$userId")
             .apply()
     }
 
