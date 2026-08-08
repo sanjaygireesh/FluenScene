@@ -104,6 +104,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.text.CueGroup
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -321,7 +322,8 @@ fun ApiKeySetupCard(apiKey: String, onKeyChange: (String) -> Unit, context: Cont
                 unfocusedBorderColor = Color(0xFF1E2924)
             ),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
         )
     }
 }
@@ -946,6 +948,7 @@ fun SetupRegionScreen(isReturningUser: Boolean = false, onRegionSaved: () -> Uni
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
                 .systemBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1416,6 +1419,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                     .padding(paddingValues)
                     .padding(horizontal = 24.dp)
                     .systemBarsPadding()
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
             ) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1907,6 +1911,11 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
 
     var showLangMenu by remember { mutableStateOf(false) }
     var textTracks by remember { mutableStateOf<List<Triple<String, Int, Int>>>(emptyList()) }
+    var hasEmbeddedSubtitles by remember { mutableStateOf(true) }
+    var autoSubtitlesChecked by remember { mutableStateOf(false) }
+    var isGeneratingSubtitles by remember { mutableStateOf(false) }
+    var subtitleGenProgressText by remember { mutableStateOf("") }
+    var showSubtitleGenDisclosure by remember { mutableStateOf(false) }
 
     var showSettingsMenu by remember { mutableStateOf(false) }
     var showAudioTracksMenu by remember { mutableStateOf(false) }
@@ -1980,6 +1989,46 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 override fun onIsPlayingChanged(isPlayingChange: Boolean) {
                     isPlaying = isPlayingChange
                 }
+                override fun onTracksChanged(tracks: Tracks) {
+                    if (!autoSubtitlesChecked) {
+                        autoSubtitlesChecked = true
+                        hasEmbeddedSubtitles = tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }
+
+                        if (!hasEmbeddedSubtitles) {
+                            val targetUri = currentMediaItem?.localConfiguration?.uri
+                            if (targetUri != null) {
+                                val cached = AutoSubtitleGenerator.getCachedSubtitleFile(context, targetUri)
+                                if (cached.exists() && cached.length() > 0) {
+                                    customSubtitleUri = Uri.fromFile(cached)
+                                }
+                            }
+                        }
+                    }
+
+                    // --- ADD THIS TO FORCE-ENABLE THE TRACK ---
+                    if (customSubtitleUri != null && isSubtitleEnabled) {
+                        var isTextTrackSelected = false
+                        var firstTextGroup: androidx.media3.common.Tracks.Group? = null
+
+                        for (group in tracks.groups) {
+                            if (group.type == C.TRACK_TYPE_TEXT) {
+                                if (firstTextGroup == null) firstTextGroup = group
+                                if (group.isSelected) isTextTrackSelected = true
+                            }
+                        }
+
+                        // If ExoPlayer ignored the generated track, force select it!
+// If ExoPlayer ignored the generated track, force select it!
+                        if (!isTextTrackSelected && firstTextGroup != null) {
+                            val override = androidx.media3.common.TrackSelectionOverride(
+                                firstTextGroup.mediaTrackGroup, 0
+                            )
+                            this@apply.trackSelectionParameters = this@apply.trackSelectionParameters.buildUpon()
+                                .setOverrideForType(override)
+                                .build()
+                        }
+                    }
+                }
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) {
                         videoDuration = duration.coerceAtLeast(0L)
@@ -1992,7 +2041,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     super.onMediaItemTransition(mediaItem, reason)
                     currentSubtitleText = ""
                     aiExplanationText = null
-                    customSubtitleUri = null
+
 
                     val localUri = mediaItem?.localConfiguration?.uri
                     if (localUri != null) {
@@ -2020,19 +2069,34 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
     LaunchedEffect(customSubtitleUri) {
         if (customSubtitleUri != null) {
             val currentMediaItem = exoPlayer.currentMediaItem
-            val currentIndex = exoPlayer.currentMediaItemIndex
             if (currentMediaItem != null) {
                 val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(customSubtitleUri!!)
                     .setMimeType(MimeTypes.APPLICATION_SUBRIP)
                     .setLanguage("en")
-                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                    .setLabel("English (AI Generated)")
+                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT or C.SELECTION_FLAG_FORCED)
                     .build()
 
                 val updatedMediaItem = currentMediaItem.buildUpon()
+                    .setMediaId("subbed_" + System.currentTimeMillis()) // Absolute Cache Bust
                     .setSubtitleConfigurations(listOf(subtitleConfig))
                     .build()
 
-                exoPlayer.replaceMediaItem(currentIndex, updatedMediaItem)
+                val pos = exoPlayer.currentPosition
+                val playWhenReady = exoPlayer.playWhenReady
+
+                // NUCLEAR RELOAD: Set it as if it's a brand new video to force the pipeline to rebuild
+                exoPlayer.setMediaItem(updatedMediaItem, pos)
+
+                // Aggressively force text track to ON
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage("en")
+                    .build()
+
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = playWhenReady
             }
         }
     }
@@ -2435,7 +2499,92 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 }
             }
         }
+        AnimatedVisibility(
+            visible = areControlsVisible && !isInPipMode && customSubtitleUri == null &&
+                    (!hasEmbeddedSubtitles || isGeneratingSubtitles),
+            enter = fadeIn(),
+            exit = fadeOut(),
+            // Pushes the button safely below the top controls in both orientations
+            modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(
+                top = if (isPortrait) 160.dp else 100.dp,
+                end = 16.dp
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(20.dp))
+                    .border(1.dp, FluenSceneGreenSolid.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                    .clickable(enabled = !isGeneratingSubtitles) { showSubtitleGenDisclosure = true }
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isGeneratingSubtitles) {
+                        CircularProgressIndicator(color = FluenSceneGreenSolid, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(subtitleGenProgressText.ifBlank { "Generating..." }, color = Color.White, fontSize = 12.sp, fontFamily = Jakarta)
+                    } else {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = FluenSceneGreenSolid, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Generate AI Subtitles", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
+                    }
+                }
+            }
+        }
 
+        if (showSubtitleGenDisclosure) {
+            AlertDialog(
+                onDismissRequest = { showSubtitleGenDisclosure = false },
+                title = { Text("Generate Subtitles with AI", style = TextStyle(brush = FluenSceneGradient), fontWeight = FontWeight.Bold, fontFamily = Comfortaa) },
+                text = {
+                    Text(
+                        "This video has no subtitles. FluenScene can send its audio to Groq in short chunks to generate them automatically, using your own connected API key. A full movie can take a couple of minutes.",
+                        color = Color.White, fontFamily = Jakarta
+                    )
+                },
+                containerColor = Color(0xFF1E2924),
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showSubtitleGenDisclosure = false
+                            val apiKey = UserPreferences.getApiKey(context, userId)
+                            if (apiKey.isBlank() || !apiKey.startsWith("gsk_")) {
+                                Toast.makeText(context, "Add your Groq API Key in Settings first.", Toast.LENGTH_LONG).show()
+                                return@Button
+                            }
+                            isGeneratingSubtitles = true
+                            coroutineScope.launch {
+                                val targetUri = exoPlayer.currentMediaItem?.localConfiguration?.uri ?: playlist[startIndex]
+                                val ghostFile = AutoSubtitleGenerator.getCachedSubtitleFile(context, targetUri)
+                                if (ghostFile.exists()) {
+                                    ghostFile.delete()
+                                }
+                                val result = AutoSubtitleGenerator.generate(
+                                    context = context,
+                                    videoUri = targetUri,
+                                    apiKey = apiKey,
+                                    videoDurationMs = videoDuration
+                                ) { chunkIndex, totalChunks ->
+                                    subtitleGenProgressText = "Transcribing $chunkIndex / $totalChunks"
+                                }
+                                isGeneratingSubtitles = false
+                                if (result != null) {
+                                    customSubtitleUri = Uri.fromFile(result)
+                                } else {
+                                    Toast.makeText(context, "Couldn't generate subtitles — check your connection and API key.", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        modifier = Modifier.background(FluenSceneGradient, RoundedCornerShape(8.dp))
+                    ) { Text("Generate", color = Color.Black, fontFamily = Jakarta, fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSubtitleGenDisclosure = false }) {
+                        Text("Not now", color = Color.Gray, fontFamily = Jakarta)
+                    }
+                }
+            )
+        }
         AnimatedVisibility(
             visible = areControlsVisible && !isInPipMode,
             enter = fadeIn(),
@@ -2453,11 +2602,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekToPreviousMediaItem() }, contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = null, tint = Color.White, modifier = Modifier.size(skipIconSize))
-                    }
-                }
+                // 1. Rewind 5 Seconds
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekTo((currentPosition - 5000).coerceAtLeast(0)) }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -2469,6 +2614,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     }
                 }
 
+                // 2. Play / Pause Button
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(playBtnOuterSize)) {
                     Box(modifier = Modifier
                         .size(playBtnInnerSize + 16.dp)
@@ -2494,6 +2640,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     }
                 }
 
+// 3. Fast Forward 15 Seconds
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekTo((currentPosition + 15000).coerceAtMost(videoDuration)) }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -2503,14 +2650,9 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                             }
                         }
                     }
-                }
-                Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekToNextMediaItem() }, contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White, modifier = Modifier.size(skipIconSize))
-                    }
-                }
-            }
-        }
+                } // 1. Closes Fast Forward Box
+            } // 2. Closes the Row
+        } // 3. Closes the Center Controls AnimatedVisibility
 
         AnimatedVisibility(
             visible = areControlsVisible && !isInPipMode,
