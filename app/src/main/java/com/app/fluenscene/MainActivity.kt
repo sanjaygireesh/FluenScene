@@ -321,7 +321,8 @@ fun ApiKeySetupCard(apiKey: String, onKeyChange: (String) -> Unit, context: Cont
                 unfocusedBorderColor = Color(0xFF1E2924)
             ),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
         )
     }
 }
@@ -946,6 +947,7 @@ fun SetupRegionScreen(isReturningUser: Boolean = false, onRegionSaved: () -> Uni
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
                 .systemBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1416,6 +1418,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                     .padding(paddingValues)
                     .padding(horizontal = 24.dp)
                     .systemBarsPadding()
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
             ) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -2453,11 +2456,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekToPreviousMediaItem() }, contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = null, tint = Color.White, modifier = Modifier.size(skipIconSize))
-                    }
-                }
+                // 1. Rewind 5 Seconds
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekTo((currentPosition - 5000).coerceAtLeast(0)) }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -2469,6 +2468,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     }
                 }
 
+                // 2. Play / Pause Button
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(playBtnOuterSize)) {
                     Box(modifier = Modifier
                         .size(playBtnInnerSize + 16.dp)
@@ -2494,6 +2494,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     }
                 }
 
+// 3. Fast Forward 15 Seconds
                 Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekTo((currentPosition + 15000).coerceAtMost(videoDuration)) }, contentAlignment = Alignment.Center) {
                     Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -2503,14 +2504,9 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                             }
                         }
                     }
-                }
-                Box(modifier = Modifier.size(skipSize).clickable { exoPlayer.seekToNextMediaItem() }, contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.background(Color.Black.copy(alpha=0.6f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White, modifier = Modifier.size(skipIconSize))
-                    }
-                }
-            }
-        }
+                } // 1. Closes Fast Forward Box
+            } // 2. Closes the Row
+        } // 3. Closes the Center Controls AnimatedVisibility
 
         AnimatedVisibility(
             visible = areControlsVisible && !isInPipMode,
