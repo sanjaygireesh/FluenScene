@@ -21,16 +21,19 @@ android {
         applicationId = "com.app.fluenscene"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
 
-        versionName = "1.0"
+        // Incremented for Google Play Console submission
+        versionCode = 10
+
+        // Updated for the new release
+        versionName = "1.0.8"
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Groq API Key ingestion
         val apiKey = localProperties.getProperty("GROQ_API_KEY") ?: ""
         buildConfigField("String", "GROQ_API_KEY", "\"$apiKey\"")
     }
-
 
     buildTypes {
         release {
@@ -77,11 +80,12 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.android.recaptcha:recaptcha:18.4.0")
 
     // Google Sign-In & Coroutines & Play Billing
     implementation("com.google.android.gms:play-services-auth:20.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-    implementation("com.android.billingclient:billing-ktx:6.1.0")
+    implementation("com.android.billingclient:billing-ktx:9.0.0")
 
     // Testing
     testImplementation(libs.junit)

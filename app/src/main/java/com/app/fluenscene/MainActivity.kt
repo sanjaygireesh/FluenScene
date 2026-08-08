@@ -1,6 +1,8 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 package com.app.fluenscene
-
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Density
 import android.Manifest
 import android.app.Activity
 import android.app.PictureInPictureParams
@@ -32,6 +34,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -42,6 +45,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -64,8 +68,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -85,6 +87,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,6 +112,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
@@ -132,6 +136,15 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+
 
 // --------------------------------------------------------------------
 // UI COMPONENTS (FONTS, BRANDING & GLASS ENGINE)
@@ -189,14 +202,24 @@ class MainActivity : ComponentActivity() {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
-            MaterialTheme {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0F0D))) {
-                    FluenSceneApp(intentUri)
+            // Lock the system font size so the UI doesn't break
+            val currentDensity = LocalDensity.current
+            val fontScaleLockedDensity = Density(
+                density = currentDensity.density,
+                fontScale = 1f
+            )
+
+            CompositionLocalProvider(LocalDensity provides fontScaleLockedDensity) {
+                MaterialTheme {
+                    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0F0D))) {
+                        FluenSceneApp(intentUri)
+                    }
                 }
             }
         }
@@ -214,6 +237,7 @@ class MainActivity : ComponentActivity() {
 }
 
 data class LocalVideo(val uri: Uri, val name: String, val duration: String, val size: String, val folder: String, val id: Long)
+data class MovieRec(val title: String, val genre: String, val reason: String)
 
 val globalRegionsList = listOf(
     "Andhra Pradesh, India", "Arunachal Pradesh, India", "Assam, India", "Bihar, India",
@@ -234,7 +258,6 @@ val dynamicVoicePrompts = listOf(
     "How do you think artificial intelligence will change daily life in the next ten years?"
 )
 
-// Helper function to handle seamless API Key redirect
 fun launchGroqConsole(context: Context) {
     val url = "https://console.groq.com/keys"
     try {
@@ -243,7 +266,6 @@ fun launchGroqConsole(context: Context) {
             .build()
         customTabsIntent.launchUrl(context, Uri.parse(url))
     } catch (e: Exception) {
-        // Fallback if Custom Tabs is unavailable
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         context.startActivity(intent)
     }
@@ -276,7 +298,6 @@ fun ApiKeySetupCard(apiKey: String, onKeyChange: (String) -> Unit, context: Cont
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Step 1: The Optimized Redirect Button
         Button(
             onClick = { launchGroqConsole(context) },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2924)),
@@ -290,7 +311,6 @@ fun ApiKeySetupCard(apiKey: String, onKeyChange: (String) -> Unit, context: Cont
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Step 2: Clear Entry Field
         OutlinedTextField(
             value = apiKey,
             onValueChange = onKeyChange,
@@ -330,6 +350,8 @@ fun FluenSceneApp(intentUri: Uri? = null) {
         mutableStateOf(if (auth.currentUser == null) "login" else "check_setup")
     }
 
+    var isReturningUser by remember { mutableStateOf(false) }
+
     var activePlaylist by remember { mutableStateOf<List<Uri>?>(null) }
     var activeStartIndex by remember { mutableIntStateOf(0) }
     var selectedFolder by remember { mutableStateOf<String?>(null) }
@@ -352,69 +374,95 @@ fun FluenSceneApp(intentUri: Uri? = null) {
                     currentScreen = "login"
                     return@LaunchedEffect
                 }
+
+                val hasLocalKey = UserPreferences.getApiKey(context, userId).startsWith("gsk_")
+
                 try {
                     val doc = db.collection("users").document(userId).get().await()
-                    if (doc.exists()) {
-                        val status = doc.getString("accountStatus")
-                        if (status == "deleted") {
-                            currentScreen = "setup_region"
-                        } else {
+                    val status = doc.getString("accountStatus")
+
+                    if (doc.exists() && status == "active") {
+                        if (hasLocalKey) {
                             currentScreen = "home"
+                        } else {
+                            isReturningUser = true
+                            currentScreen = "setup_region"
                         }
                     } else {
+                        isReturningUser = false
                         currentScreen = "setup_region"
                     }
                 } catch (e: Exception) {
-                    currentScreen = "home"
+                    if (hasLocalKey) {
+                        currentScreen = "home"
+                    } else {
+                        isReturningUser = true
+                        currentScreen = "setup_region"
+                    }
                 }
             }
 
             val infiniteTransition = rememberInfiniteTransition(label = "infiniteGlow")
             val glowRadius by infiniteTransition.animateFloat(
                 initialValue = 200f, targetValue = 400f,
-                animationSpec = infiniteRepeatable(animation = tween(1200, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
                 label = "glowRadius"
             )
-            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF030305)), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color(0xFF030305)),
+                contentAlignment = Alignment.Center
+            ) {
                 AmbientGreenGlow()
-                Box(modifier = Modifier.size(300.dp).background(
-                    brush = Brush.radialGradient(colors = listOf(FluenSceneGreenSolid.copy(alpha = 0.2f), Color.Transparent), radius = glowRadius),
-                    shape = CircleShape
-                ))
+                Box(
+                    modifier = Modifier.size(300.dp).background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                FluenSceneGreenSolid.copy(alpha = 0.2f),
+                                Color.Transparent
+                            ), radius = glowRadius
+                        ),
+                        shape = CircleShape
+                    )
+                )
                 CircularProgressIndicator(color = FluenSceneGreenSolid)
             }
         }
-        "setup_region" -> SetupRegionScreen(onRegionSaved = { currentScreen = "quiz" })
+
+        "setup_region" -> SetupRegionScreen(
+            isReturningUser = isReturningUser,
+            onRegionSaved = {
+                if (isReturningUser) {
+                    currentScreen = "home"
+                } else {
+                    currentScreen = "quiz"
+                }
+            }
+        )
+// Inside AIQuizScreen onQuizFinished callback:
         "quiz" -> AIQuizScreen(onQuizFinished = { calculatedFluency ->
             val userId = getUserIdFingerprint()
             coroutineScope.launch {
                 try {
                     val docRef = db.collection("users").document(userId)
-                    val snapshot = docRef.get().await()
-
-                    if (snapshot.exists() && snapshot.contains("accountStatus")) {
-                        docRef.update(
-                            mapOf(
-                                "email" to auth.currentUser?.email,
-                                "fluencyLevel" to calculatedFluency,
-                                "accountStatus" to "active"
-                            )
-                        ).await()
-                    } else {
-                        val userData = mapOf(
-                            "email" to auth.currentUser?.email,
-                            "fluencyLevel" to calculatedFluency,
-                            "totalTranslationsRequested" to 0,
-                            "accountStatus" to "active"
-                        )
-                        docRef.set(userData, SetOptions.merge()).await()
-                    }
+                    val userData = mapOf(
+                        "email" to auth.currentUser?.email,
+                        "fluencyLevel" to calculatedFluency,
+                        "totalTranslationsRequested" to 0,
+                        "learningSeconds" to 0L,
+                        "accountStatus" to "active"
+                    )
+                    // Use set() without merge so any stale data is completely overwritten
+                    docRef.set(userData).await()
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
                 currentScreen = "home"
             }
         })
+
         "settings" -> SettingsScreen(onNavigateBack = { currentScreen = "home" })
         "home" -> {
             LaunchedEffect(pendingIntentUri) {
@@ -435,32 +483,10 @@ fun FluenSceneApp(intentUri: Uri? = null) {
             }
 
             if (activePlaylist == null) {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF04140C))) {
-                    LocalVideoLibrary(
-                        selectedFolder = selectedFolder,
-                        onFolderSelected = { selectedFolder = it },
-                        onVideoSelected = { playlist, index ->
-                            activePlaylist = playlist
-                            activeStartIndex = index
-                        },
-                        onSettingsClicked = { currentScreen = "settings" }
-                    )
-
-                    Button(
-                        onClick = { videoPickerLauncher.launch("video/*") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                        contentPadding = PaddingValues(),
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 32.dp)
-                            .systemBarsPadding()
-                            .background(FluenSceneGradient, RoundedCornerShape(32.dp))
-                    ) {
-                        Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            Text("Browse Files Manually", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
-                        }
-                    }
-                }
+                HomeScreenDashboard(
+                    onSettingsClicked = { currentScreen = "settings" },
+                    onOpenFileClicked = { videoPickerLauncher.launch("video/*") }
+                )
             } else {
                 VideoPlayerScreen(
                     playlist = activePlaylist!!,
@@ -471,7 +497,249 @@ fun FluenSceneApp(intentUri: Uri? = null) {
             }
         }
     }
+    }
+@Composable
+fun HomeScreenDashboard(onSettingsClicked: () -> Unit, onOpenFileClicked: () -> Unit) {
+    val context = LocalContext.current
+    val userId = remember { getUserIdFingerprint() }
+
+    var fluencyLevel by remember { mutableIntStateOf(1) }
+    var translationsCount by remember { mutableIntStateOf(0) }
+    var learningSeconds by remember { mutableLongStateOf(0L) }
+
+    var movieRecs by remember { mutableStateOf<List<MovieRec>>(emptyList()) }
+    var isLoadingRecs by remember { mutableStateOf(true) }
+    var showRateUsDialog by remember { mutableStateOf(UserPreferences.shouldShowRateUs(context, userId)) }
+
+    LaunchedEffect(userId) {
+        try {
+            val doc = db.collection("users").document(userId).get().await()
+            fluencyLevel = doc.getLong("fluencyLevel")?.toInt() ?: 1
+            translationsCount = doc.getLong("totalTranslationsRequested")?.toInt() ?: 0
+            learningSeconds = doc.getLong("learningSeconds") ?: 0L
+
+            val apiKey = UserPreferences.getApiKey(context, userId)
+            if (apiKey.startsWith("gsk_")) {
+                val randomGenres = listOf("Sci-Fi", "Comedy", "Thriller", "Mystery", "Action", "Romance", "Animation").shuffled().take(2).joinToString(" and ")
+                val randomSeed = (1..10000).random()
+
+                val prompt = """
+    You are an expert ESL movie curriculum designer. The learner's English fluency is $fluencyLevel out of 10.
+    Recommend exactly 3 movies.
+    
+    RULES:
+    1. NEVER recommend: The Shawshank Redemption, The Pursuit of Happyness, The Grand Budapest Hotel, Forrest Gump, The Intern.
+    2. Focus on these genres for this request: $randomGenres. (Seed: $randomSeed)
+    3. Match vocabulary difficulty strictly to level $fluencyLevel.
+    
+    Return strictly a raw JSON array of objects without markdown formatting. 
+    Format: [{"title": "Movie Name", "genre": "Genre", "reason": "Explain why the vocabulary and speech speed fits this exact level."}]
+""".trimIndent()
+                val rawResponse = generateTextFromGroq(prompt, context)
+                val cleanJson = rawResponse.substringAfter("[").substringBeforeLast("]")
+                if (cleanJson.isNotBlank()) {
+                    val jsonArray = JSONArray("[$cleanJson]")
+                    val recs = mutableListOf<MovieRec>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        recs.add(MovieRec(
+                            title = obj.optString("title", "Unknown"),
+                            genre = obj.optString("genre", "Movie"),
+                            reason = obj.optString("reason", "Great for learning.")
+                        ))
+                    }
+                    movieRecs = recs
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isLoadingRecs = false
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF04140C))) {
+        AmbientGreenGlow()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .systemBarsPadding()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("FluenScene Dashboard", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = Comfortaa, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(auth.currentUser?.email ?: "Learner", style = TextStyle(brush = FluenSceneGradient), fontSize = 14.sp, fontFamily = Jakarta)
+                }
+                IconButton(onClick = onSettingsClicked, modifier = Modifier.background(Color(0xFF162A20), CircleShape)) {
+                    Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings", tint = FluenSceneGreenSolid, modifier = Modifier.size(24.dp))
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onOpenFileClicked() },
+                colors = CardDefaults.cardColors(containerColor = FluenSceneGreenSolid),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Open Video File", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 20.sp, fontFamily = Jakarta)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Select a local movie to start learning with AI subtitles.", color = Color.Black.copy(alpha=0.7f), fontSize = 13.sp, fontFamily = Jakarta)
+                    }
+                    Box(modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha=0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                DashboardStatCard(
+                    modifier = Modifier.weight(1f),
+                    title = "Fluency Level",
+                    value = "$fluencyLevel/10",
+                    icon = Icons.Filled.TrendingUp
+                )
+                DashboardStatCard(
+                    modifier = Modifier.weight(1f),
+                    title = "Hours Learned",
+                    value = String.format("%.1f", learningSeconds / 3600f),
+                    icon = Icons.Filled.Timer
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            DashboardStatCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = "Total AI Translations Requested",
+                value = translationsCount.toString(),
+                icon = Icons.Filled.Translate
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("AI Movie Picks for Level $fluencyLevel", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = Comfortaa)
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = FluenSceneGreenSolid)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (isLoadingRecs) {
+                Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = FluenSceneGreenSolid, modifier = Modifier.size(32.dp))
+                }
+            } else if (movieRecs.isEmpty()) {
+                Text("Add your Groq API Key in settings to get dynamic recommendations.", color = Color.Gray, fontSize = 13.sp, fontFamily = Jakarta, textAlign = TextAlign.Center, modifier = Modifier.padding(16.dp))
+            } else {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(movieRecs) { rec ->
+                        Card(
+                            modifier = Modifier.width(260.dp).height(IntrinsicSize.Max),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1410)),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, Color(0xFF162A20))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(rec.title, color = FluenSceneGreenSolid, fontWeight = FontWeight.Bold, fontSize = 16.sp, fontFamily = Jakarta, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(rec.genre, color = Color.Gray, fontSize = 12.sp, fontFamily = Jakarta, modifier = Modifier.padding(bottom = 8.dp))
+                                Text(rec.reason, color = Color.White.copy(alpha=0.9f), fontSize = 13.sp, fontFamily = Jakarta, lineHeight = 18.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+        }
+
+        // Rate Us Dialog rendered cleanly on Dashboard
+        if (showRateUsDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(320.dp)
+                        // Make it solid dark with a subtle green border
+                        .background(Color(0xFF0B1410), RoundedCornerShape(32.dp))
+                        .border(1.dp, Color(0xFF162A20), RoundedCornerShape(32.dp))
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Filled.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("Enjoying FluenScene?", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = Comfortaa)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        "You've completed 5 AI translations! If this app is helping you learn, please take 10 seconds to rate us 5 stars. It keeps the app free!",
+                        color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, textAlign = TextAlign.Center, fontFamily = Jakarta, lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = {
+                            showRateUsDialog = false
+                            UserPreferences.setShouldShowRateUs(context, userId, false)
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}"))
+                            try { context.startActivity(intent) }
+                            catch (e: Exception) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}"))) }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FluenSceneGreenSolid),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Rate 5 Stars", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    TextButton(onClick = {
+                        showRateUsDialog = false
+                        UserPreferences.setShouldShowRateUs(context, userId, false)
+                    }) {
+                        Text("Maybe Later", color = Color.White.copy(alpha = 0.5f), fontFamily = Jakarta)
+                    }
+                }
+            }
+        }
+    }
 }
+@Composable
+fun DashboardStatCard(modifier: Modifier, title: String, value: String, icon: ImageVector) {
+    // Replaced standard Card with liquidGlass Box
+    Box(
+        modifier = modifier.liquidGlass(RoundedCornerShape(20.dp))
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Icon(icon, contentDescription = null, tint = FluenSceneGreenSolid, modifier = Modifier.size(28.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(value, color = Color.White, fontWeight = FontWeight.Black, fontSize = 26.sp, fontFamily = Jakarta)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(title, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, fontFamily = Jakarta)
+        }
+    }
+}
+
 
 @Composable
 fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
@@ -567,7 +835,16 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
             modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Text("FluenScene", style = TextStyle(brush = FluenSceneGradient), fontSize = 50.sp, fontWeight = FontWeight.Black, fontFamily = Agrandir, letterSpacing = 2.sp)
+            Text(
+                text = "FluenScene",
+                style = TextStyle(brush = FluenSceneGradient),
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = Agrandir,
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                softWrap = false
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -635,27 +912,26 @@ fun GoogleSignInScreen(onSignInSuccess: () -> Unit) {
         }
     }
 }
-
 @Composable
 fun FeatureCard(modifier: Modifier, icon: ImageVector, title: String, desc: String) {
+    // Replaced solid background and standard border with liquidGlass
     Column(
         modifier = modifier
-            .background(Color(0xFF0B1410), RoundedCornerShape(16.dp))
-            .border(1.dp, Color(0xFF162A20), RoundedCornerShape(16.dp))
-            .padding(vertical = 20.dp, horizontal = 12.dp),
+            .liquidGlass(RoundedCornerShape(20.dp))
+            .padding(vertical = 24.dp, horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        Icon(icon, contentDescription = title, tint = FluenSceneGreenSolid, modifier = Modifier.size(32.dp))
+        Icon(icon, contentDescription = title, tint = FluenSceneGreenSolid, modifier = Modifier.size(36.dp))
         Spacer(modifier = Modifier.height(16.dp))
-        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Jakarta, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(desc, color = Color.Gray, fontSize = 11.sp, fontFamily = Jakarta, textAlign = TextAlign.Center, lineHeight = 16.sp)
+        Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Jakarta, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(desc, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontFamily = Jakarta, textAlign = TextAlign.Center, lineHeight = 18.sp)
     }
 }
 
 @Composable
-fun SetupRegionScreen(onRegionSaved: () -> Unit) {
+fun SetupRegionScreen(isReturningUser: Boolean = false, onRegionSaved: () -> Unit) {
     val context = LocalContext.current
     val userId = remember { getUserIdFingerprint() }
     var regionText by remember(userId) { mutableStateOf("") }
@@ -745,11 +1021,75 @@ fun SetupRegionScreen(onRegionSaved: () -> Unit) {
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
                 contentPadding = PaddingValues()
             ) {
-                Text("Continue to Placement Test", color = if(regionText.isNotBlank() && apiKeyInput.startsWith("gsk_")) Color.Black else Color.DarkGray, fontWeight = FontWeight.Bold, fontFamily = Jakarta, letterSpacing = 2.sp)
+                Text(
+                    text = if (isReturningUser) "Restore Account & Continue" else "Continue to Placement Test",
+                    color = if(regionText.isNotBlank() && apiKeyInput.startsWith("gsk_")) Color.Black else Color.DarkGray,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = Jakarta,
+                    letterSpacing = 2.sp
+                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+suspend fun generateDynamicQuiz(apiKey: String, context: Context): JSONArray? {
+    return withContext(Dispatchers.IO) {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+        val url = "https://api.groq.com/openai/v1/chat/completions"
+        val jsonPayloadObject = JSONObject().apply {
+            put("model", "llama-3.1-8b-instant")
+            put("temperature", 0.2) // Lower temperature = more consistent, factual questions
+
+            val messagesArray = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", """
+                        You are a strict English Language Placement Examiner.
+                        Generate EXACTLY 15 multiple-choice questions testing Grammar, Vocabulary, and Natural Phrasing.
+                        
+                        RULES:
+                        1. EVERY question MUST have exactly ONE correct answer and 3 realistic distractors.
+                        2. NEVER ask conversational, subjective, or personal questions (e.g., "What is your name?", "What time is it?", "How are you?").
+                        3. NO True/False or Yes/No questions.
+                        4. Progression:
+                           - Q1 to Q5: Easy (Basic tense, simple vocabulary)
+                           - Q6 to Q10: Intermediate (Phrasal verbs, idioms, prepositions)
+                           - Q11 to Q15: Advanced (Inference, subtle grammar, nuance)
+                        
+                        OUTPUT FORMAT:
+                        Return ONLY a raw JSON array:
+                        [{"q": "Question text...", "options": ["Option A", "Option B", "Option C", "Option D"], "ans": 0}]
+                        'ans' is the 0-based index of the correct answer.
+                    """.trimIndent())
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", "Generate the 15 placement questions now.")
+                })
+            }
+            put("messages", messagesArray)
+        }
+
+        val body = jsonPayloadObject.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+        try {
+            val request = Request.Builder().url(url).addHeader("Authorization", "Bearer $apiKey").post(body).build()
+            val response = client.newCall(request).execute()
+            val responseData = response.body?.string()
+
+            if (response.isSuccessful && responseData != null) {
+                val content = JSONObject(responseData).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+                val cleanJson = content.substringAfter("[").substringBeforeLast("]")
+                JSONArray("[$cleanJson]")
+            } else { null }
+        } catch (e: Exception) { null }
     }
 }
 
@@ -767,10 +1107,12 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
 
     var showResultDialog by remember { mutableStateOf(false) }
     var finalCalculatedScore by remember { mutableIntStateOf(5) }
+    var voiceFeedback by remember { mutableStateOf("") }
     var showAudioDisclosure by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     val selectedVoicePrompt by remember { mutableStateOf(dynamicVoicePrompts.random()) }
+    val apiKey = remember { UserPreferences.getApiKey(context, getUserIdFingerprint()) }
 
     LaunchedEffect(isProcessingQuiz) {
         if (isProcessingQuiz) {
@@ -788,15 +1130,20 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
 
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    val prompt = "The user was asked: \"$selectedVoicePrompt\". They verbally responded: \"$spokenText\". Grade their English conversational fluency (focusing on natural flow, vocabulary usage in context, and enunciation. Ignore theoretical grammar flaws if it sounds like native slang or conversational flow) strictly from 1 to 10. Respond ONLY with a single digit or number."
+                    val prompt = "You are an expert English speech evaluator. Prompt asked: '$selectedVoicePrompt'. User spoke: '$spokenText'. Evaluate their fluency, grammar, and vocabulary strictly on a 1-10 scale. Return ONLY a JSON object: {\"score\": <integer 1-10>, \"feedback\": \"<1 concise sentence providing specific feedback on their phrasing>\"}. Return ONLY raw JSON without markdown."
                     val evaluationResponse = generateTextFromGroq(prompt, context)
 
-                    val match = Regex("\\b([1-9]|10)\\b").find(evaluationResponse)
-                    val voiceScore = match?.value?.toInt() ?: mcqScore
+                    val cleanJson = evaluationResponse.substringAfter("{").substringBeforeLast("}")
+                    val jsonObj = JSONObject("{$cleanJson}")
+
+                    val voiceScore = jsonObj.optInt("score", mcqScore)
+                    val feedbackText = jsonObj.optString("feedback", "Good effort on the spoken segment.")
 
                     finalCalculatedScore = ((mcqScore + voiceScore) / 2.0).roundToInt().coerceIn(1, 10)
+                    voiceFeedback = feedbackText
                 } catch (e: Exception) {
                     finalCalculatedScore = mcqScore
+                    voiceFeedback = "Voice processing fallback activated."
                 }
                 withContext(Dispatchers.Main) {
                     isProcessingQuiz = false
@@ -805,6 +1152,7 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
             }
         } else {
             finalCalculatedScore = mcqScore
+            voiceFeedback = "Voice test skipped."
             showResultDialog = true
         }
     }
@@ -819,32 +1167,39 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
             speechLauncher.launch(intent)
         } else {
             finalCalculatedScore = mcqScore
+            voiceFeedback = "Voice test skipped (Permission denied)."
             showResultDialog = true
         }
     }
 
     LaunchedEffect(Unit) {
-        val staticQuizJson = """
-        [
-          {"q": "Which word is closest in meaning to Happy?", "options": ["Angry", "Joyful", "Tired", "Lazy"], "ans": 1},
-          {"q": "What is the opposite of Ancient?", "options": ["Old", "Historic", "Modern", "Traditional"], "ans": 2},
-          {"q": "Which word is closest in meaning to Reluctant?", "options": ["Eager", "Hesitant", "Excited", "Brave"], "ans": 1},
-          {"q": "What is the opposite of Scarce?", "options": ["Rare", "Few", "Abundant", "Limited"], "ans": 2},
-          {"q": "Which word is closest in meaning to Meticulous?", "options": ["Careless", "Precise", "Fast", "Ordinary"], "ans": 1},
-          {"q": "What does \"Break the ice\" mean?", "options": ["Destroy something cold", "Start a conversation comfortably", "Get angry", "Leave suddenly"], "ans": 1},
-          {"q": "What does \"Hit the nail on the head\" mean?", "options": ["Miss the point", "Hurt someone", "Be exactly correct", "Work hard"], "ans": 2},
-          {"q": "What does \"Once in a blue moon\" mean?", "options": ["Every day", "Very rarely", "At night", "During winter"], "ans": 1},
-          {"q": "What does \"Bite off more than you can chew\" mean?", "options": ["Eat too much food", "Take on more responsibility than you can handle", "Waste time", "Complain a lot"], "ans": 1},
-          {"q": "What does \"Throw in the towel\" mean?", "options": ["Clean a room", "Start a fight", "Give up or admit defeat", "Celebrate success"], "ans": 2},
-          {"q": "Which sentence is correct?", "options": ["He don't like coffee.", "He doesn't likes coffee.", "He doesn't like coffee.", "He not like coffee."], "ans": 2},
-          {"q": "Choose the best word: \"The scientist's explanation was so ______ that even children could understand it.\"", "options": ["Complex", "Obscure", "Clear", "Ambiguous"], "ans": 2},
-          {"q": "If someone says: \"I expected the movie to be amazing, but it turned out to be just average.\" What is the speaker's feeling?", "options": ["Excited", "Disappointed", "Confused", "Terrified"], "ans": 1},
-          {"q": "Which sentence sounds most natural?", "options": ["Despite of the rain, we went outside.", "In spite the rain, we went outside.", "Despite the rain, we went outside.", "Although of the rain, we went outside."], "ans": 2},
-          {"q": "What is the difference between 'You must finish the report.' and 'You should finish the report.'?", "options": ["'Must' is advice, 'Should' is obligation.", "'Must' is obligation, 'Should' is advice.", "Both mean the exact same thing.", "'Must' is optional, 'Should' is required."], "ans": 1}
-        ]
-        """.trimIndent()
-
-        questions = JSONArray(staticQuizJson)
+        coroutineScope.launch {
+            val dynamicQ = generateDynamicQuiz(apiKey, context)
+            if (dynamicQ != null && dynamicQ.length() == 15) {
+                questions = dynamicQ
+            } else {
+                val staticQuizJson = """
+[
+  {"q": "Choose the correct word: 'I ____ to the store yesterday.'", "options": ["go", "goes", "went", "going"], "ans": 2},
+  {"q": "Which sentence sounds the most natural?", "options": ["I am having 20 years old.", "I have 20 years.", "I am 20 years old.", "My age is 20 years."], "ans": 2},
+  {"q": "What does 'Break the ice' mean in a conversation?", "options": ["Destroy something cold", "Make people feel more comfortable", "Start an argument", "Leave the room suddenly"], "ans": 1},
+  {"q": "Friend: 'I totally bombed my job interview.' What is the best response?", "options": ["Congratulations!", "That's terrible, I'm sorry.", "Did you use a real bomb?", "You are a bomb."], "ans": 1},
+  {"q": "If a movie character says 'I'm gonna head out', what are they doing?", "options": ["Going to sleep", "Putting on a hat", "Leaving the current location", "Becoming the boss"], "ans": 2},
+  {"q": "Choose the best fit: 'The committee ______ the proposal after hours of discussion.'", "options": ["rejected", "rejectedly", "rejection", "rejecting"], "ans": 0},
+  {"q": "What is the difference between 'You must finish' and 'You should finish'?", "options": ["Must is advice, Should is an order", "Must is an order, Should is advice", "They mean the exact same thing", "Must means it is optional"], "ans": 1},
+  {"q": "If someone says 'That is out of the question', they mean:", "options": ["They didn't hear the question", "It is impossible or not allowed", "The test is over", "They agree with you completely"], "ans": 1},
+  {"q": "Which is grammatically correct?", "options": ["I look forward to hear from you.", "I look forward hearing from you.", "I look forward to hearing from you.", "I look forward hear from you."], "ans": 2},
+  {"q": "Sarah smiled politely although she disagreed. What does this imply?", "options": ["She was hiding her true feelings.", "She thought the disagreement was funny.", "She changed her mind.", "She was confused."], "ans": 0},
+  {"q": "Which word is closest in meaning to 'Meticulous'?", "options": ["Careless", "Precise", "Fast", "Ordinary"], "ans": 1},
+  {"q": "What does 'Hit the nail on the head' mean?", "options": ["Miss the point", "Hurt someone accidentally", "Be exactly correct about a situation", "Work very hard"], "ans": 2},
+  {"q": "Choose the correct phrasing: 'He is ______ dedicated employee in the company.'", "options": ["the most", "more", "the more", "most"], "ans": 0},
+  {"q": "If a situation is described as a 'Catch-22', it is:", "options": ["A fun game to play", "An easy problem to solve", "A paradox where you cannot escape", "A situation involving 22 people"], "ans": 2},
+  {"q": "Choose the best word: 'The scientist's explanation was so ______ that even children could understand it.'", "options": ["Complex", "Obscure", "Lucid", "Ambiguous"], "ans": 2}
+]
+""".trimIndent()
+                questions = JSONArray(staticQuizJson)
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0A0A)), contentAlignment = Alignment.Center) {
@@ -855,7 +1210,7 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = FluenSceneGreenSolid)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Loading your strict fluency test...", color = Color.White, fontFamily = Jakarta)
+                    Text("Generating strict dynamic fluency test via AI...", color = Color.White, fontFamily = Jakarta)
                 }
             } else if (!isVoiceStage && questions != null && currentQuestionIndex < questions!!.length()) {
                 val qObj = questions!!.getJSONObject(currentQuestionIndex)
@@ -965,7 +1320,14 @@ fun AIQuizScreen(onQuizFinished: (Int) -> Unit) {
                 onDismissRequest = { },
                 title = { Text("Placement Test Complete", style = TextStyle(brush = FluenSceneGradient), fontWeight = FontWeight.Bold, fontFamily = Comfortaa) },
                 text = {
-                    Text("Your calculated English Fluency Level is:\n\n$finalCalculatedScore / 10\n\nFluenScene AI will now adapt its vocabulary strictly to your level.", color = Color.White, fontSize = 16.sp, fontFamily = Jakarta)
+                    Column {
+                        Text("Your calculated English Fluency Level is:\n\n$finalCalculatedScore / 10\n", color = Color.White, fontSize = 16.sp, fontFamily = Jakarta)
+                        if (voiceFeedback.isNotBlank()) {
+                            Text("AI Voice Feedback: ", color = FluenSceneGreenSolid, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
+                            Text(voiceFeedback, color = Color.LightGray, fontSize = 14.sp, fontFamily = Jakarta, modifier = Modifier.padding(bottom = 16.dp))
+                        }
+                        Text("FluenScene AI will now adapt its vocabulary strictly to your level.", color = Color.Gray, fontSize = 13.sp, fontFamily = Jakarta)
+                    }
                 },
                 containerColor = Color(0xFF1E2924),
                 confirmButton = {
@@ -1137,9 +1499,12 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                         auth.signOut()
                         googleSignInClient.signOut().addOnCompleteListener {
                             val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                            intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
-                            (context as? Activity)?.finish()
+                            // FIX: Safely unpack the nullable intent
+                            intent?.let { safeIntent ->
+                                safeIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(safeIntent)
+                                (context as? Activity)?.finish()
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -1232,33 +1597,45 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                         val currentUser = auth.currentUser
 
                         if (userId.isNotEmpty() && currentUser != null) {
-                            coroutineScope.launch {
+                            coroutineScope.launch(Dispatchers.IO) { // Best practice: Run DB tasks in background
                                 try {
-                                    db.collection("users").document(userId).update(
-                                        mapOf(
-                                            "email" to com.google.firebase.firestore.FieldValue.delete(),
-                                            "fluencyLevel" to com.google.firebase.firestore.FieldValue.delete(),
-                                            "accountStatus" to "deleted"
-                                        )
-                                    ).await()
+                                    // 1. Erase Firestore Data First (This works perfectly)
+                                    db.collection("users").document(userId).delete().await()
 
+                                    // 2. Clear Local Preferences
                                     UserPreferences.clearLocalData(context, userId)
-                                    currentUser.delete().await()
 
+                                    // 3. Try to delete the Auth Account safely
+                                    try {
+                                        currentUser.delete().await()
+                                    } catch (e: Exception) {
+                                        // If Firebase complains about "Recent Login Required",
+                                        // we just swallow the error because their data is already safely wiped.
+                                    }
+
+                                    // 4. Force Sign Out of Firebase and Google
                                     auth.signOut()
-                                    googleSignInClient.signOut().await()
+                                    try { googleSignInClient.signOut().await() } catch (e: Exception) {}
 
-                                    isDeleting = false
-                                    showDeleteDialog = false
+                                    // 5. Update UI and Restart App Smoothly
+                                    withContext(Dispatchers.Main) {
+                                        isDeleting = false
+                                        showDeleteDialog = false
 
-                                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                                    intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                    (context as? Activity)?.finish()
+                                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                        // FIX: Safely unpack the nullable intent
+                                        intent?.let { safeIntent ->
+                                            safeIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                            context.startActivity(safeIntent)
+                                            (context as? Activity)?.finish()
+                                        }
+                                    }
 
                                 } catch (e: Exception) {
-                                    isDeleting = false
-                                    deleteError = "Security Error: Please log out, log back in, and try deleting immediately."
+                                    withContext(Dispatchers.Main) {
+                                        isDeleting = false
+                                        deleteError = "Network Error: Please check your internet and try again."
+                                    }
                                 }
                             }
                         }
@@ -1518,7 +1895,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
     var isServerWaking by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var gestureIndicatorText by remember { mutableStateOf<String?>(null) }
-
+    var showRateUsDialog by remember { mutableStateOf(UserPreferences.shouldShowRateUs(context, userId)) }
     var seekPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val mediaRetriever = remember { MediaMetadataRetriever() }
     var lastFrameExtractionTime by remember { mutableLongStateOf(0L) }
@@ -1569,6 +1946,8 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
     var isPlaying by remember { mutableStateOf(true) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var videoDuration by remember { mutableLongStateOf(0L) }
+
+    var sessionLearningSeconds by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(isThinking) {
         if (isThinking) {
@@ -1629,9 +2008,12 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
     }
 
     LaunchedEffect(isPlaying, isScrubbingBar) {
-        while(isPlaying && !isScrubbingBar) {
-            currentPosition = exoPlayer.currentPosition
+        while(isPlaying) {
+            if(!isScrubbingBar) {
+                currentPosition = exoPlayer.currentPosition
+            }
             delay(1000)
+            sessionLearningSeconds++
         }
     }
 
@@ -1700,6 +2082,15 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
             if (currentUri != null) {
                 UserPreferences.saveVideoPosition(context, currentUri.toString(), exoPlayer.currentPosition)
             }
+
+            // Save learning session watch time
+            if (sessionLearningSeconds > 0) {
+                try {
+                    db.collection("users").document(userId)
+                        .update("learningSeconds", FieldValue.increment(sessionLearningSeconds))
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+
             exoPlayer.release()
         }
     }
@@ -1875,7 +2266,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                             IconButton(onClick = onDismissPlayer, modifier = Modifier.size(40.dp)) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close Player", tint = Color.White, modifier = Modifier.size(28.dp))
                             }
-                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                            Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                             Text(
                                 text = "Vol ${volumeMultiplier}00%",
                                 color = if (volumeMultiplier > 1) Color.Red else FluenSceneGreenSolid,
@@ -1898,7 +2289,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                     } catch (e: Exception) { e.printStackTrace() }
                                 }
                             )
-                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                            Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                             Text(
                                 text = resizeModes[currentResizeModeIndex].second,
                                 color = Color.White,
@@ -1930,7 +2321,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                     performHardVibration()
                                 }
                             )
-                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                            Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                             Text(
                                 text = "Load",
                                 color = Color.White,
@@ -1941,7 +2332,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                     performHardVibration()
                                 }
                             )
-                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                            Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                             IconButton(
                                 onClick = {
                                     val currentOrientation = activity?.resources?.configuration?.orientation
@@ -1966,7 +2357,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                         IconButton(onClick = onDismissPlayer, modifier = Modifier.size(40.dp)) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close Player", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
-                        Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                        Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                         Text(
                             text = "Vol ${volumeMultiplier}00%",
                             color = if (volumeMultiplier > 1) Color.Red else FluenSceneGreenSolid,
@@ -1989,7 +2380,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                 } catch (e: Exception) { e.printStackTrace() }
                             }
                         )
-                        Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                        Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                         Text(
                             text = resizeModes[currentResizeModeIndex].second,
                             color = Color.White,
@@ -2000,7 +2391,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                 performHardVibration()
                             }
                         )
-                        Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                        Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                         Text(
                             text = if (isSubtitleEnabled) "CC: ON" else "CC: OFF",
                             color = if (isSubtitleEnabled) FluenSceneGreenSolid else Color.Gray,
@@ -2014,7 +2405,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                 performHardVibration()
                             }
                         )
-                        Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                        Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                         Text(
                             text = "Load",
                             color = Color.White,
@@ -2025,7 +2416,7 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                 performHardVibration()
                             }
                         )
-                        Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.DarkGray)
+                        Box(modifier = Modifier.height(16.dp).width(1.dp).background(Color.DarkGray))
                         IconButton(
                             onClick = {
                                 val currentOrientation = activity?.resources?.configuration?.orientation
@@ -2167,7 +2558,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
-
                 Row(
                     modifier = Modifier.fillMaxWidth(1f),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2176,18 +2566,27 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     Text(
                         text = if (showRemainingTime) "-${formatTime(videoDuration - currentPosition)}" else "${formatTime(currentPosition)}  •  ${formatTime(videoDuration)}",
                         color = FluenSceneGreenSolid,
-                        fontSize = 14.sp,
+                        // Shrinks in portrait
+                        fontSize = if (isPortrait) 12.sp else 14.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Reduces gap in portrait
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(if (isPortrait) 20.dp else 36.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // ----------------------------------------------------
+                        // 1. CC: LANG BOX
+                        // ----------------------------------------------------
                         Box {
                             Text(
                                 text = "CC: LANG",
                                 color = FluenSceneGreenSolid,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
+                                // Shrinks in portrait
+                                fontSize = if (isPortrait) 13.sp else 16.sp,
                                 modifier = Modifier.clickable {
                                     val tracks = mutableListOf<Triple<String, Int, Int>>()
                                     val groups = exoPlayer.currentTracks.groups
@@ -2233,13 +2632,17 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                             }
                         }
 
+                        // ----------------------------------------------------
+                        // 2. SETTINGS ICON BOX
+                        // ----------------------------------------------------
                         Box {
                             Icon(
                                 Icons.Filled.Settings,
                                 contentDescription = "Settings",
                                 tint = Color.White,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    // Shrinks in portrait
+                                    .size(if (isPortrait) 24.dp else 32.dp)
                                     .clickable {
                                         performHardVibration()
                                         showSettingsMenu = true
@@ -2336,7 +2739,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                 }
             }
         }
-
         AnimatedVisibility(
             visible = isDynamicSpeedActive && !isInPipMode,
             enter = fadeIn(),
@@ -2494,13 +2896,30 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
 
                                     val currentFluency = snapshot.getLong("fluencyLevel") ?: 5
                                     val totalTranslations = snapshot.getLong("totalTranslationsRequested") ?: 0
+                                    val learningSeconds = snapshot.getLong("learningSeconds") ?: 0L // <-- Added learning time tracker
 
                                     aiExplanationText = getAiExplanation(currentSubtitleText, customKey, userRegion, currentFluency.toInt())
 
                                     var newFluency = currentFluency
                                     val newTotal = totalTranslations + 1
-                                    if (newTotal % 50 == 0L && newFluency < 10) {
+
+// CALCULATE HARD GROWTH RATE
+// Level 5 requires: 250 translations AND 75 hours watched
+// Level 9 requires: 450 translations AND 135 hours watched
+                                    val requiredTranslationsForNextLevel = currentFluency * 50
+                                    val requiredTimeForNextLevel = currentFluency * 54000L
+
+// Only level up if THEY MEET BOTH CONDITIONS and aren't max level
+                                    if (newFluency < 10 &&
+                                        newTotal >= requiredTranslationsForNextLevel &&
+                                        learningSeconds >= requiredTimeForNextLevel) {
+
                                         newFluency += 1
+                                    }
+
+// Check for Rate Us dialog trigger (Exactly at 5 translations)
+                                    if (newTotal == 5L) {
+                                        UserPreferences.setShouldShowRateUs(context, userId, true)
                                     }
 
                                     userRef.update(
@@ -2557,7 +2976,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
-                            // FIX 1: Actually save the report to Firebase to comply with Google Play AI policies
                             coroutineScope.launch {
                                 try {
                                     val reportData = mapOf(
@@ -2566,7 +2984,6 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                                         "subtitleContext" to currentSubtitleText,
                                         "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                                     )
-                                    // Add to a new collection called "ai_reports"
                                     db.collection("ai_reports").add(reportData).await()
 
                                     withContext(Dispatchers.Main) {
@@ -2589,6 +3006,63 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                         Button(onClick = { aiExplanationText = null; exoPlayer.play() }, colors = ButtonDefaults.buttonColors(containerColor = Color.White)) {
                             Text("Resume Movie", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
                         }
+                    }
+                }
+            }
+        }
+        if (showRateUsDialog && !isInPipMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    // FIX: This is the correct way to swallow background clicks in Compose
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(320.dp)
+                        .liquidGlass(RoundedCornerShape(32.dp))
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Filled.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("Enjoying FluenScene?", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = Comfortaa)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        "You've just completed 5 AI translations! If this app is helping you learn, please take 10 seconds to rate us 5 stars. It keeps the app free!",
+                        color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, textAlign = TextAlign.Center, fontFamily = Jakarta, lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = {
+                            showRateUsDialog = false
+                            UserPreferences.setShouldShowRateUs(context, userId, false)
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}"))
+                            try { context.startActivity(intent) }
+                            catch (e: Exception) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}"))) }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FluenSceneGreenSolid),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Rate 5 Stars", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = Jakarta)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    TextButton(onClick = {
+                        showRateUsDialog = false
+                        UserPreferences.setShouldShowRateUs(context, userId, false)
+                    }) {
+                        Text("Maybe Later", color = Color.White.copy(alpha = 0.5f), fontFamily = Jakarta)
                     }
                 }
             }
@@ -2792,11 +3266,11 @@ object UserPreferences {
 
     fun clearLocalData(context: Context, userId: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .remove("user_region_$userId")
-            .remove("sub_tutorial_seen_$userId")
-            .remove("api_key_$userId")
-            .apply()
+        val editor = prefs.edit()
+        prefs.all.keys.filter { it.contains(userId) }.forEach { key ->
+            editor.remove(key)
+        }
+        editor.apply()
     }
 
     fun saveRegion(context: Context, userId: String, region: String) {
@@ -2815,4 +3289,40 @@ object UserPreferences {
     fun getVideoPosition(context: Context, videoUri: String): Long {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong("pos_$videoUri", 0L)
     }
+
+    fun setShouldShowRateUs(context: Context, userId: String, show: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean("rate_us_$userId", show).apply()
+    }
+
+    fun shouldShowRateUs(context: Context, userId: String): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean("rate_us_$userId", false)
+    }
+}
+// Paste this at the bottom of your file!
+fun Modifier.liquidGlass(
+    shape: Shape = RoundedCornerShape(24.dp)
+): Modifier = composed {
+    this
+        .clip(shape)
+        // The translucent frosted glass base
+        .background(
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.15f), // Light catching top-left
+                    Color.White.copy(alpha = 0.03f)  // Fading out bottom-right
+                )
+            )
+        )
+        // The sharp Apple-style rim light (shiny edges)
+        .border(
+            width = 1.dp,
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.6f), // Bright reflection top-left
+                    Color.Transparent,              // No border in the middle
+                    Color.White.copy(alpha = 0.2f)  // Subtle rebound light bottom-right
+                )
+            ),
+            shape = shape
+        )
 }
