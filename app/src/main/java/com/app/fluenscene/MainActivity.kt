@@ -1047,7 +1047,7 @@ suspend fun generateDynamicQuiz(apiKey: String, context: Context): JSONArray? {
 
         val url = "https://api.groq.com/openai/v1/chat/completions"
         val jsonPayloadObject = JSONObject().apply {
-            put("model", "llama-3.1-8b-instant")
+            put("model", "openai/gpt-oss-20b")
             put("temperature", 0.2) // Lower temperature = more consistent, factual questions
 
             val messagesArray = JSONArray().apply {
@@ -3307,7 +3307,7 @@ suspend fun getAiExplanation(subtitle: String, apiKey: String, userRegion: Strin
 
         val url = "https://api.groq.com/openai/v1/chat/completions"
         val jsonPayloadObject = JSONObject().apply {
-            put("model", "llama-3.1-8b-instant")
+            put("model", "openai/gpt-oss-20b")
             put("temperature", 0.3)
 
             val levelInstruction = when (fluency) {
@@ -3359,7 +3359,7 @@ suspend fun generateTextFromGroq(prompt: String, context: Context): String {
 
         val url = "https://api.groq.com/openai/v1/chat/completions"
         val jsonPayloadObject = JSONObject().apply {
-            put("model", "llama-3.1-8b-instant")
+            put("model", "openai/gpt-oss-20b")
             put("temperature", 0.3)
             val messagesArray = JSONArray().apply {
                 put(JSONObject().apply {

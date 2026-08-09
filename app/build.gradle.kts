@@ -6,7 +6,6 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localProperties.load(FileInputStream(localPropertiesFile))
 }
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -23,16 +22,14 @@ android {
         targetSdk = 36
 
         // Incremented for Google Play Console submission
-        versionCode = 10
+        versionCode = 12
 
         // Updated for the new release
-        versionName = "1.0.8"
+        versionName = "1.0.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Groq API Key ingestion
-        val apiKey = localProperties.getProperty("GROQ_API_KEY") ?: ""
-        buildConfigField("String", "GROQ_API_KEY", "\"$apiKey\"")
+        // Removed the dead Groq API Key ingestion code from here!
     }
 
     buildTypes {
