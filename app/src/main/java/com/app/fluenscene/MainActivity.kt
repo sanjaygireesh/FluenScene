@@ -2504,9 +2504,9 @@ fun VideoPlayerScreen(playlist: List<Uri>, startIndex: Int, onDismissPlayer: () 
                     (!hasEmbeddedSubtitles || isGeneratingSubtitles),
             enter = fadeIn(),
             exit = fadeOut(),
-            // Pushes the button safely below the top controls in both orientations
+            // Pushed down further in portrait mode to clear the rotate/volume controls completely
             modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(
-                top = if (isPortrait) 160.dp else 100.dp,
+                top = if (isPortrait) 200.dp else 100.dp,
                 end = 16.dp
             )
         ) {
